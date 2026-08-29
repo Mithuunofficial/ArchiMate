@@ -1,0 +1,66 @@
+@import "@xyflow/react/dist/style.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 5 8 22;
+    --foreground: 248 250 252;
+  }
+}
+
+body {
+  background-color: #050816;
+  color: #f8fafc;
+  overflow-x: hidden;
+}
+
+/* React Flow custom dark overrides */
+.react-flow__renderer {
+  background-color: #050816 !important;
+}
+
+.react-flow__background {
+  background-color: #050816 !important;
+}
+
+.react-flow__controls {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5) !important;
+  border-radius: 12px !important;
+  border: 1px solid #1e293b !important;
+  background-color: #0f172a !important;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background-color: #0f172a !important;
+  border-bottom: 1px solid #1e293b !important;
+  fill: #94a3b8 !important;
+  color: #94a3b8 !important;
+}
+
+.react-flow__controls-button:hover {
+  background-color: #1e293b !important;
+  fill: #06b6d4 !important;
+  color: #06b6d4 !important;
+}
+
+.react-flow__minimap {
+  background-color: #0b1120 !important;
+  border: 1px solid #1e293b !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+}
+
+.react-flow__edge-path {
+  stroke: #06b6d4 !important;
+  stroke-width: 2px !important;
+}
+
+.react-flow__edge-text {
+  fill: #94a3b8 !important;
+  font-size: 10px !important;
+  font-family: monospace !important;
+}

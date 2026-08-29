@@ -1,0 +1,3 @@
+import { useAuth } from "@/components/providers/AuthProvider";
+
+export { useAuth };
