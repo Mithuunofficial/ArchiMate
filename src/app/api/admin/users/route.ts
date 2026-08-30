@@ -9,13 +9,23 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const searchQuery = searchParams.get("q") || "";
+  const statusFilter = searchParams.get("status")?.toLowerCase() || "all";
 
   const defaultAdminUser = {
     id: "268b5fe1-46cf-4e16-8b8f-8cd1ac6c17f6",
     username: process.env.ADMIN_USERNAME || "Admin-Archimate",
     email: "archimate.org@gmail.com",
-    role: "admin",
-    status: "active",
+    role: "admin" as const,
+    status: "approved" as const,
+    accountStatus: "approved" as const,
+    emailVerified: true,
+    adminApproved: true,
+    approvedBy: "System",
+    approvedAt: new Date().toISOString(),
+    rejectedBy: null,
+    rejectedAt: null,
+    suspendedAt: null,
+    rejectionReason: null,
     projectCount: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -36,6 +46,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ users: [defaultAdminUser] });
     }
 
+    // Fetch confirmed emails from auth.users via admin API to verify email status
+    const authUsersMap: Record<string, boolean> = {};
+    try {
+      const { data: authData } = await supabaseAdmin.auth.admin.listUsers();
+      (authData?.users || []).forEach((au) => {
+        authUsersMap[au.id] = !!au.email_confirmed_at;
+      });
+    } catch {
+      // Ignore if listUsers is not supported
+    }
+
     // Fetch project counts for users
     const { data: projects } = await supabaseAdmin
       .from("projects")
@@ -46,18 +67,46 @@ export async function GET(req: NextRequest) {
       projectCounts[p.user_id] = (projectCounts[p.user_id] || 0) + 1;
     });
 
-    const userList = (users || []).map((u) => ({
-      id: u.id,
-      username: u.username,
-      email: u.email,
-      role: u.role || "user",
-      status: u.status || "active",
-      projectCount: projectCounts[u.id] || 0,
-      createdAt: u.created_at,
-      updatedAt: u.updated_at,
-    }));
+    let userList = (users || []).map((u) => {
+      const emailVerified = authUsersMap[u.id] ?? u.email_verified ?? false;
+      const adminApproved = u.admin_approved ?? false;
 
-    if (userList.length === 0) {
+      let computedStatus: "pending" | "approved" | "rejected" | "suspended" = "pending";
+      const rawStatus = u.account_status || u.status;
+
+      if (rawStatus === "suspended" || rawStatus === "rejected") {
+        computedStatus = rawStatus;
+      } else if (emailVerified || adminApproved || u.role === "admin") {
+        computedStatus = "approved";
+      }
+
+      return {
+        id: u.id,
+        username: u.username,
+        email: u.email,
+        role: u.role || "user",
+        status: computedStatus,
+        accountStatus: computedStatus,
+        emailVerified,
+        adminApproved,
+        approvedBy: u.approved_by || null,
+        approvedAt: u.approved_at || null,
+        rejectedBy: u.rejected_by || null,
+        rejectedAt: u.rejected_at || null,
+        suspendedAt: u.suspended_at || null,
+        rejectionReason: u.rejection_reason || null,
+        projectCount: projectCounts[u.id] || 0,
+        createdAt: u.created_at,
+        updatedAt: u.updated_at,
+      };
+    });
+
+    // Apply status filtering if specified
+    if (statusFilter !== "all") {
+      userList = userList.filter((u) => u.accountStatus === statusFilter);
+    }
+
+    if (userList.length === 0 && statusFilter === "all" && !searchQuery) {
       userList.push(defaultAdminUser);
     }
 

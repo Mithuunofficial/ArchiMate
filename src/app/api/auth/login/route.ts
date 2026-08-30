@@ -60,12 +60,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Check if account is suspended
-    if (profileData && profileData.status === "suspended") {
-      return NextResponse.json(
-        { error: "Account has been suspended. Access denied." },
-        { status: 403 }
-      );
+    // 2. Check if account is suspended or rejected from initial profile data
+    if (profileData) {
+      const currentStatus = profileData.account_status || profileData.status;
+      if (currentStatus === "suspended") {
+        return NextResponse.json(
+          { error: "Your account has been suspended by an administrator." },
+          { status: 403 }
+        );
+      }
+      if (currentStatus === "rejected") {
+        return NextResponse.json(
+          { error: "Your account registration was rejected by an administrator." },
+          { status: 403 }
+        );
+      }
     }
 
     let authenticatedUser: any = null;
@@ -115,17 +124,58 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Sync email verification status if verified via Supabase Auth
+    const isEmailConfirmed = !!authenticatedUser.email_confirmed_at;
+    const emailVerified = isEmailConfirmed || !!profileData?.email_verified;
+    const adminApproved = !!profileData?.admin_approved;
+
+    let computedStatus: "pending" | "approved" | "rejected" | "suspended" = "pending";
+    const rawStatus = profileData?.account_status || profileData?.status;
+    if (rawStatus === "suspended" || rawStatus === "rejected") {
+      computedStatus = rawStatus;
+    } else if (emailVerified || adminApproved) {
+      computedStatus = "approved";
+    }
+
+    // Update profile table in background if status changed or email was confirmed
+    if (profileData && (emailVerified !== profileData.email_verified || computedStatus !== profileData.account_status)) {
+      try {
+        await supabaseAdmin
+          .from("profiles")
+          .update({
+            email_verified: emailVerified,
+            account_status: computedStatus,
+            status: computedStatus,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", authenticatedUser.id);
+      } catch {
+        // Ignore DB sync error
+      }
+    }
+
+    const responseProfile = {
+      id: authenticatedUser.id,
+      username: profileData?.username || trimmedUsername,
+      email: targetEmail,
+      role: profileData?.role || "user",
+      status: computedStatus,
+      accountStatus: computedStatus,
+      emailVerified,
+      adminApproved,
+      approvedBy: profileData?.approved_by || null,
+      approvedAt: profileData?.approved_at || null,
+      rejectedBy: profileData?.rejected_by || null,
+      rejectedAt: profileData?.rejected_at || null,
+      createdAt: profileData?.created_at || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
     return NextResponse.json({
       success: true,
       user: authenticatedUser,
       session: authenticatedSession,
-      profile: profileData || {
-        id: authenticatedUser.id,
-        username: trimmedUsername,
-        email: targetEmail,
-        role: "user",
-        status: "active",
-      },
+      profile: responseProfile,
     });
   } catch (err: any) {
     return NextResponse.json(

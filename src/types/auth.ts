@@ -1,9 +1,20 @@
+export type AccountStatus = "pending" | "approved" | "rejected" | "suspended";
+
 export interface UserProfile {
   id: string;
   username: string;
   email: string;
   role: "user" | "admin";
-  status: "active" | "suspended";
+  status: "active" | "suspended" | "pending" | "approved" | "rejected";
+  accountStatus: AccountStatus;
+  emailVerified: boolean;
+  adminApproved: boolean;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectedBy?: string | null;
+  rejectedAt?: string | null;
+  suspendedAt?: string | null;
+  rejectionReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -13,7 +24,10 @@ export interface AuthUser {
   username: string;
   email: string;
   role?: "user" | "admin";
-  status?: "active" | "suspended";
+  status?: "active" | "suspended" | "pending" | "approved" | "rejected";
+  accountStatus?: AccountStatus;
+  emailVerified?: boolean;
+  adminApproved?: boolean;
   avatarUrl?: string;
   isGuest?: boolean;
 }

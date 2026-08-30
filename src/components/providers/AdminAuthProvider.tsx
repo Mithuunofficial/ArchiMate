@@ -82,7 +82,12 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         username: data.profile.username,
         email: data.profile.email,
         role: data.profile.role,
-        status: data.profile.status,
+        status: data.profile.status || "approved",
+        accountStatus: data.profile.accountStatus || data.profile.status || "approved",
+        emailVerified: data.profile.emailVerified ?? true,
+        adminApproved: data.profile.adminApproved ?? true,
+        approvedBy: data.profile.approvedBy || null,
+        approvedAt: data.profile.approvedAt || null,
         createdAt: data.profile.created_at || data.profile.createdAt,
         updatedAt: data.profile.updated_at || data.profile.updatedAt,
       };

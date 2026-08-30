@@ -86,59 +86,60 @@ export async function POST(req: NextRequest) {
 
     let user: any = null;
     let session: any = null;
-    let needsEmailVerification = false;
 
-    // 4. Register user with Supabase Auth
+    // 4. Register user with Supabase Auth (sending verification email)
     try {
-      const { data: adminData, error: adminErr } = await supabaseAdmin.auth.admin.createUser({
+      // First try standard signup which triggers Supabase Auth email verification flow
+      const { data: clientData, error: clientErr } = await supabase.auth.signUp({
         email: trimmedEmail,
         password: password,
-        email_confirm: true,
-        user_metadata: { username: trimmedUsername, role: "user" },
+        options: {
+          data: { username: trimmedUsername, role: "user" },
+          emailRedirectTo: `${req.nextUrl.origin}/login?verified=true`,
+        },
       });
 
-      if (adminErr) {
-        const { data: clientData, error: clientErr } = await supabase.auth.signUp({
-          email: trimmedEmail,
-          password: password,
-          options: {
-            data: { username: trimmedUsername, role: "user" },
-          },
-        });
+      if (clientErr) {
+        const isDup =
+          clientErr.message.includes("already registered") ||
+          clientErr.message.includes("User already exists") ||
+          clientErr.status === 422;
 
-        if (clientErr) {
-          const isDup =
-            clientErr.message.includes("already registered") ||
-            clientErr.message.includes("User already exists") ||
-            clientErr.status === 422;
-
-          if (isDup) {
-            return NextResponse.json(
-              { error: "This email is already registered." },
-              { status: 400 }
-            );
-          }
-        } else if (clientData?.user) {
-          user = clientData.user;
-          session = clientData.session;
+        if (isDup) {
+          return NextResponse.json(
+            { error: "This email is already registered." },
+            { status: 400 }
+          );
         }
-      } else if (adminData?.user) {
-        user = adminData.user;
-        const { data: signInData } = await supabase.auth.signInWithPassword({
+
+        // Fallback to admin createUser with email_confirm: false
+        const { data: adminData } = await supabaseAdmin.auth.admin.createUser({
           email: trimmedEmail,
           password: password,
+          email_confirm: false,
+          user_metadata: { username: trimmedUsername, role: "user" },
         });
-        session = signInData?.session || null;
+
+        if (adminData?.user) {
+          user = adminData.user;
+        }
+      } else if (clientData?.user) {
+        user = clientData.user;
+        session = clientData.session;
       }
 
       if (user) {
+        const isEmailConfirmed = !!user.email_confirmed_at;
         await supabaseAdmin.from("profiles").upsert(
           {
             id: user.id,
             username: trimmedUsername,
             email: trimmedEmail,
             role: "user",
-            status: "active",
+            status: isEmailConfirmed ? "approved" : "pending",
+            account_status: isEmailConfirmed ? "approved" : "pending",
+            email_verified: isEmailConfirmed,
+            admin_approved: false,
             updated_at: new Date().toISOString(),
           },
           { onConflict: "id" }
@@ -160,25 +161,20 @@ export async function POST(req: NextRequest) {
         created_at: devRecord.createdAt,
       };
 
-      session = {
-        access_token: `session-dev-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        refresh_token: `refresh-dev-${Date.now()}`,
-        expires_in: 604800,
-        token_type: "bearer",
-        user,
-      };
+      session = null; // Require user to click verify or admin approve
     } else {
       // Also sync to dev store for local signin consistency
       DevAuthStore.createUser(trimmedUsername, trimmedEmail, password);
     }
 
-    needsEmailVerification = !session && !!user;
+    const needsEmailVerification = !user?.email_confirmed_at;
 
     return NextResponse.json({
       success: true,
       user,
       session,
       needsEmailVerification,
+      message: "Account created successfully. Please verify your email or wait for admin approval.",
     });
   } catch (err: any) {
     return NextResponse.json(

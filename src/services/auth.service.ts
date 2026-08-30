@@ -31,15 +31,75 @@ class AuthService {
       return null;
     }
 
+    const { data: sessionData } = await supabase.auth.getSession();
+    const isEmailConfirmed = !!sessionData?.session?.user?.email_confirmed_at;
+    const emailVerified = isEmailConfirmed || !!data.email_verified;
+    const adminApproved = !!data.admin_approved;
+
+    let computedStatus: "pending" | "approved" | "rejected" | "suspended" = "pending";
+    const dbAccountStatus = data.account_status || data.status;
+    if (dbAccountStatus === "suspended" || dbAccountStatus === "rejected") {
+      computedStatus = dbAccountStatus;
+    } else if (emailVerified || adminApproved) {
+      computedStatus = "approved";
+    }
+
     return {
       id: data.id,
       username: data.username,
       email: data.email,
       role: data.role || "user",
-      status: data.status || "active",
+      status: computedStatus,
+      accountStatus: computedStatus,
+      emailVerified,
+      adminApproved,
+      approvedBy: data.approved_by || null,
+      approvedAt: data.approved_at || null,
+      rejectedBy: data.rejected_by || null,
+      rejectedAt: data.rejected_at || null,
+      suspendedAt: data.suspended_at || null,
+      rejectionReason: data.rejection_reason || null,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     };
+  }
+
+  /**
+   * Resend verification email to user
+   */
+  public async resendVerificationEmail(email: string): Promise<{
+    success: boolean;
+    error: string | null;
+    cooldownSeconds?: number;
+  }> {
+    try {
+      const response = await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          success: false,
+          error: data.error || "Failed to resend verification email.",
+          cooldownSeconds: data.remainingSeconds,
+        };
+      }
+
+      return {
+        success: true,
+        error: null,
+        cooldownSeconds: data.cooldownSeconds || 60,
+      };
+    } catch {
+      return {
+        success: false,
+        error: "Unable to process resend request. Please check your network connection.",
+      };
+    }
   }
 
   /**

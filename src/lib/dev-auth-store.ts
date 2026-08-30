@@ -4,7 +4,16 @@ export interface DevUserRecord {
   email: string;
   passwordHash: string;
   role: "user" | "admin";
-  status: "active" | "suspended";
+  status: "active" | "suspended" | "pending" | "approved" | "rejected";
+  accountStatus: "pending" | "approved" | "rejected" | "suspended";
+  emailVerified: boolean;
+  adminApproved: boolean;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectedBy?: string | null;
+  rejectedAt?: string | null;
+  suspendedAt?: string | null;
+  rejectionReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -51,7 +60,10 @@ export const DevAuthStore = {
       email,
       passwordHash,
       role: "user",
-      status: "active",
+      status: "pending",
+      accountStatus: "pending",
+      emailVerified: false,
+      adminApproved: false,
       createdAt: now,
       updatedAt: now,
     };

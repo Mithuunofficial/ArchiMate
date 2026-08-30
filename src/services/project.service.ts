@@ -106,34 +106,33 @@ class ProjectService {
 
     const { data: sessionData } = await supabase.auth.getSession();
     const user = sessionData.session?.user;
+    const token = sessionData.session?.access_token;
     if (!user) {
       throw new Error("Authentication required to create a project.");
     }
 
     const arch = architecture || createEmptyArchitecture(name, description);
-    const techStack = arch.metadata?.technologies || [];
 
-    const { data, error } = await supabase
-      .from("projects")
-      .insert({
-        user_id: user.id, // Strictly bound to authenticated session user ID
-        project_name: name,
-        description: description,
-        tech_stack: techStack,
+    // Call server route which validates requireApprovedUser()
+    const res = await fetch("/api/projects", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token || ""}`,
+      },
+      body: JSON.stringify({
+        name,
+        description,
         architecture: arch,
-        node_count: arch.nodes.length,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
+      }),
+    });
 
-    if (error || !data) {
-      console.error("Error creating project in Supabase:", error?.message);
-      throw new Error(error?.message || "Unable to create project.");
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error(data.error || "Unable to create project.");
     }
 
-    return this.mapRowToProject(data);
+    return this.mapRowToProject(data.project);
   }
 
   /**
@@ -151,38 +150,32 @@ class ProjectService {
     if (!isSupabaseConfigured()) return null;
 
     const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
     if (!sessionData.session?.user) {
       return null;
     }
 
-    const updatePayload: Record<string, unknown> = {
-      updated_at: new Date().toISOString(),
-    };
+    const res = await fetch("/api/projects/save", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token || ""}`,
+      },
+      body: JSON.stringify({
+        id,
+        name: updatedData.name,
+        description: updatedData.description,
+        architecture: updatedData.architecture,
+      }),
+    });
 
-    if (updatedData.name !== undefined) updatePayload.project_name = updatedData.name;
-    if (updatedData.description !== undefined) updatePayload.description = updatedData.description;
-    if (updatedData.architecture !== undefined) {
-      updatePayload.architecture = updatedData.architecture;
-      updatePayload.node_count = updatedData.architecture.nodes.length;
-      if (updatedData.architecture.metadata?.technologies) {
-        updatePayload.tech_stack = updatedData.architecture.metadata.technologies;
-      }
-    }
-    if (updatedData.techStack !== undefined) updatePayload.tech_stack = updatedData.techStack;
-
-    const { data, error } = await supabase
-      .from("projects")
-      .update(updatePayload)
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (error || !data) {
-      console.error("Error updating project in Supabase:", error?.message);
-      return null;
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      console.error("Error updating project:", data.error);
+      throw new Error(data.error || "Unable to save project.");
     }
 
-    return this.mapRowToProject(data);
+    return this.mapRowToProject(data.project);
   }
 
   /**

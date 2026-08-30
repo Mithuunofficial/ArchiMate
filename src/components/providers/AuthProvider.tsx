@@ -13,6 +13,9 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
+  isApproved: boolean;
+  isPending: boolean;
+  isRejected: boolean;
   isSuspended: boolean;
   isConfigured: boolean;
   signOut: () => Promise<void>;
@@ -26,6 +29,9 @@ const AuthContext = createContext<AuthContextType>({
   isLoading: true,
   isAuthenticated: false,
   isAdmin: false,
+  isApproved: false,
+  isPending: true,
+  isRejected: false,
   isSuspended: false,
   isConfigured: false,
   signOut: async () => {},
@@ -108,6 +114,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setProfile(null);
   };
 
+  const isEmailVerified = !!user?.email_confirmed_at || !!profile?.emailVerified;
+  const isAdminApproved = !!profile?.adminApproved;
+  const rawStatus = profile?.accountStatus || profile?.status || "pending";
+
+  const isSuspended = rawStatus === "suspended";
+  const isRejected = rawStatus === "rejected";
+  const isAdmin = profile?.role === "admin";
+  const isApproved = !isSuspended && !isRejected && (isEmailVerified || isAdminApproved || isAdmin);
+  const isPending = !isApproved && !isSuspended && !isRejected;
+
   return (
     <AuthContext.Provider
       value={{
@@ -116,8 +132,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         session,
         isLoading,
         isAuthenticated: !!user,
-        isAdmin: profile?.role === "admin",
-        isSuspended: profile?.status === "suspended",
+        isAdmin,
+        isApproved,
+        isPending,
+        isRejected,
+        isSuspended,
         isConfigured,
         signOut,
         refreshProfile,

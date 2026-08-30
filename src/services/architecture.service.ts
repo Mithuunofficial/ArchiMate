@@ -1,5 +1,6 @@
 import { Architecture } from "@/types/architecture";
 import { getMockArchitectureForPrompt } from "@/mocks/presets";
+import { supabase } from "@/lib/supabase/client";
 
 export interface GenerationStep {
   id: string;
@@ -42,11 +43,29 @@ export class ArchitectureService {
     // Step 4
     steps[3].status = "in-progress";
     if (onStepUpdate) onStepUpdate([...steps]);
-    await this.delay(500);
+
+    // Call server endpoint protected by requireApprovedUser
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData.session?.access_token;
+
+    const res = await fetch("/api/generate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token || ""}`,
+      },
+      body: JSON.stringify({ prompt }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      throw new Error(data.error || "Your account is awaiting approval.");
+    }
+
     steps[3].status = "completed";
     if (onStepUpdate) onStepUpdate([...steps]);
 
-    return getMockArchitectureForPrompt(prompt);
+    return data.architecture || getMockArchitectureForPrompt(prompt);
   }
 
   private delay(ms: number): Promise<void> {

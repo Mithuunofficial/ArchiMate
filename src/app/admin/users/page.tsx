@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { AdminGuard } from "@/components/auth/AdminGuard";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
@@ -15,9 +15,14 @@ import {
   AlertTriangle,
   Loader2,
   FolderGit2,
-  UserX,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Lock,
   UserCheck,
+  UserX,
   X,
+  Check,
 } from "lucide-react";
 
 interface UserItem {
@@ -25,26 +30,50 @@ interface UserItem {
   username: string;
   email: string;
   role: "user" | "admin";
-  status: "active" | "suspended";
+  status: "pending" | "approved" | "rejected" | "suspended";
+  accountStatus: "pending" | "approved" | "rejected" | "suspended";
+  emailVerified: boolean;
+  adminApproved: boolean;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectedBy?: string | null;
+  rejectedAt?: string | null;
+  suspendedAt?: string | null;
+  rejectionReason?: string | null;
   projectCount: number;
   createdAt: string;
   updatedAt: string;
 }
 
+type FilterType = "all" | "pending" | "approved" | "rejected" | "suspended";
+
 function UserManagementContent() {
+  const searchParams = useSearchParams();
+  const initialStatusParam = (searchParams.get("status") || "pending") as FilterType;
+
   const [users, setUsers] = useState<UserItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [deletingUser, setDeletingUser] = useState<UserItem | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [filter, setFilter] = useState<FilterType>(
+    ["all", "pending", "approved", "rejected", "suspended"].includes(initialStatusParam)
+      ? initialStatusParam
+      : "pending"
+  );
+
+  // Active modal targets
+  const [targetUser, setTargetUser] = useState<UserItem | null>(null);
+  const [modalType, setModalType] = useState<"approve" | "reject" | "suspend" | "activate" | "delete" | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { adminSession } = useAdminAuth();
   const { toastSuccess, toastError, toastInfo } = useToast();
 
-  const fetchUsers = async (queryStr = "") => {
+  const fetchUsers = async (queryStr = "", statusFilter: FilterType = filter) => {
     setIsLoading(true);
     try {
-      const res = await fetch(`/api/admin/users?q=${encodeURIComponent(queryStr)}`, {
+      const url = `/api/admin/users?q=${encodeURIComponent(queryStr)}&status=${statusFilter}`;
+      const res = await fetch(url, {
         headers: {
           Authorization: `Bearer ${adminSession?.access_token || ""}`,
         },
@@ -65,59 +94,60 @@ function UserManagementContent() {
   useEffect(() => {
     if (adminSession?.access_token) {
       const timer = setTimeout(() => {
-        fetchUsers(search);
+        fetchUsers(search, filter);
       }, 300);
       return () => clearTimeout(timer);
     }
-  }, [search, adminSession]);
+  }, [search, filter, adminSession]);
 
-  const handleToggleStatus = async (user: UserItem) => {
-    const nextStatus = user.status === "active" ? "suspended" : "active";
+  const handleActionSubmit = async () => {
+    if (!targetUser || !modalType) return;
+    setIsSubmitting(true);
     try {
-      const res = await fetch(`/api/admin/users/${user.id}/update`, {
-        method: "POST",
+      let endpoint = "";
+      let payload: Record<string, unknown> = {};
+
+      if (modalType === "approve") {
+        endpoint = `/api/admin/users/${targetUser.id}/approve`;
+      } else if (modalType === "reject") {
+        endpoint = `/api/admin/users/${targetUser.id}/reject`;
+        payload = { reason: rejectionReason.trim() };
+      } else if (modalType === "suspend") {
+        endpoint = `/api/admin/users/${targetUser.id}/suspend`;
+      } else if (modalType === "activate") {
+        endpoint = `/api/admin/users/${targetUser.id}/activate`;
+      } else if (modalType === "delete") {
+        endpoint = `/api/admin/users/${targetUser.id}/delete`;
+      }
+
+      const res = await fetch(endpoint, {
+        method: modalType === "delete" ? "DELETE" : "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${adminSession?.access_token || ""}`,
         },
-        body: JSON.stringify({ status: nextStatus }),
+        body: modalType !== "delete" ? JSON.stringify(payload) : undefined,
       });
 
       const data = await res.json();
       if (res.ok) {
-        toastSuccess(`User "${user.username}" status updated to ${nextStatus}.`);
-        fetchUsers(search);
+        if (modalType === "approve") toastSuccess(`User "${targetUser.username}" approved successfully!`);
+        else if (modalType === "reject") toastInfo(`User "${targetUser.username}" rejected.`);
+        else if (modalType === "suspend") toastInfo(`User "${targetUser.username}" suspended.`);
+        else if (modalType === "activate") toastSuccess(`User "${targetUser.username}" activated!`);
+        else if (modalType === "delete") toastInfo(`User "${targetUser.username}" deleted.`);
+
+        setTargetUser(null);
+        setModalType(null);
+        setRejectionReason("");
+        fetchUsers(search, filter);
       } else {
-        toastError(data.error || "Failed to update user status.");
+        toastError(data.error || "Failed to complete operation.");
       }
     } catch {
-      toastError("Unable to update user status.");
-    }
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!deletingUser) return;
-    setIsDeleting(true);
-    try {
-      const res = await fetch(`/api/admin/users/${deletingUser.id}/delete`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${adminSession?.access_token || ""}`,
-        },
-      });
-
-      const data = await res.json();
-      if (res.ok) {
-        toastInfo(`User "${deletingUser.username}" deleted successfully.`);
-        setDeletingUser(null);
-        fetchUsers(search);
-      } else {
-        toastError(data.error || "Failed to delete user account.");
-      }
-    } catch {
-      toastError("Unable to delete user account.");
+      toastError("Error connecting to server endpoint.");
     } finally {
-      setIsDeleting(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -130,47 +160,86 @@ function UserManagementContent() {
             <div className="flex items-center gap-2 mb-1">
               <Users className="w-5 h-5 text-cyan-400" />
               <h1 className="text-2xl sm:text-3xl font-extrabold text-white">
-                User Management
+                User Management & Approvals
               </h1>
             </div>
             <p className="text-xs sm:text-sm text-slate-400">
-              Manage accounts, inspect user profiles, toggle active/suspended status, and perform deletions.
+              Dual-method authorization: Review pending users, trigger admin approvals, suspend or activate accounts.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             <span className="text-xs font-mono text-slate-400 bg-[#090D1A] px-3 py-1.5 rounded-xl border border-slate-800">
-              Total Users: <strong className="text-cyan-300">{users.length}</strong>
+              Users Shown: <strong className="text-cyan-300">{users.length}</strong>
             </span>
           </div>
         </div>
 
-        {/* Search Bar */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-md">
+        {/* Filter Controls & Search */}
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+          {/* Status Filter Tabs */}
+          <div className="flex items-center gap-1 bg-[#090D1A] p-1.5 rounded-2xl border border-slate-800 overflow-x-auto">
+            {(
+              [
+                { id: "pending", label: "Pending Approval", icon: Clock },
+                { id: "approved", label: "Approved", icon: CheckCircle2 },
+                { id: "rejected", label: "Rejected", icon: XCircle },
+                { id: "suspended", label: "Suspended", icon: Lock },
+                { id: "all", label: "All Users", icon: Users },
+              ] as const
+            ).map((tab) => {
+              const Icon = tab.icon;
+              const isActive = filter === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setFilter(tab.id as FilterType)}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-mono font-semibold transition-all flex items-center gap-1.5 whitespace-nowrap ${
+                    isActive
+                      ? tab.id === "pending"
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                        : tab.id === "approved"
+                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                        : tab.id === "rejected"
+                        ? "bg-rose-500/20 text-rose-300 border border-rose-500/40"
+                        : tab.id === "suspended"
+                        ? "bg-purple-500/20 text-purple-300 border border-purple-500/40"
+                        : "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Search Input */}
+          <div className="relative max-w-md w-full">
             <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search users by username or email..."
-              className="w-full pl-9 pr-4 py-2.5 text-xs bg-[#090D1A] border border-slate-800 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors font-sans"
+              placeholder="Search by username or email..."
+              className="w-full pl-9 pr-4 py-2 text-xs bg-[#090D1A] border border-slate-800 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 font-sans"
             />
           </div>
         </div>
 
-        {/* User Table */}
+        {/* Admin User Table */}
         <div className="rounded-2xl border border-slate-800 bg-[#090D1A] overflow-hidden shadow-2xl">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-800 bg-[#070B19] text-[11px] font-mono uppercase text-slate-400">
-                  <th className="py-3.5 px-4 font-bold">User</th>
+                  <th className="py-3.5 px-4 font-bold">Username</th>
                   <th className="py-3.5 px-4 font-bold">Email</th>
-                  <th className="py-3.5 px-4 font-bold">Role</th>
-                  <th className="py-3.5 px-4 font-bold">Projects</th>
+                  <th className="py-3.5 px-4 font-bold text-center">Email Verified</th>
+                  <th className="py-3.5 px-4 font-bold text-center">Admin Approval</th>
+                  <th className="py-3.5 px-4 font-bold">Account Status</th>
                   <th className="py-3.5 px-4 font-bold">Joined</th>
-                  <th className="py-3.5 px-4 font-bold">Status</th>
                   <th className="py-3.5 px-4 font-bold text-right">Actions</th>
                 </tr>
               </thead>
@@ -180,14 +249,14 @@ function UserManagementContent() {
                     <td colSpan={7} className="py-16 text-center text-slate-400 font-mono">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" />
-                        <span>Searching database users...</span>
+                        <span>Querying user accounts...</span>
                       </div>
                     </td>
                   </tr>
                 ) : users.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-16 text-center text-slate-400 font-mono">
-                      No matching user accounts found.
+                      No users found in current filter.
                     </td>
                   </tr>
                 ) : (
@@ -201,9 +270,9 @@ function UserManagementContent() {
                           </div>
                           <div>
                             <span className="font-bold text-slate-100 block">{user.username}</span>
-                            <span className="text-[10px] font-mono text-slate-500 truncate block">
-                              ID: {user.id.slice(0, 8)}...
-                            </span>
+                            {user.role === "admin" && (
+                              <span className="text-[9px] font-mono text-cyan-400 uppercase font-bold">ADMIN</span>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -211,45 +280,66 @@ function UserManagementContent() {
                       {/* Email */}
                       <td className="py-3.5 px-4 text-slate-300 font-mono">{user.email}</td>
 
-                      {/* Role */}
-                      <td className="py-3.5 px-4 font-mono">
-                        {user.role === "admin" ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 font-bold">
-                            ADMIN
+                      {/* Email Verification Column */}
+                      <td className="py-3.5 px-4 text-center font-mono">
+                        {user.emailVerified ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold inline-flex items-center gap-1">
+                            <Check className="w-3 h-3" />
+                            <span>Verified</span>
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700">
-                            USER
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700 font-medium inline-flex items-center gap-1">
+                            <X className="w-3 h-3 text-slate-500" />
+                            <span>Not Verified</span>
                           </span>
                         )}
                       </td>
 
-                      {/* Projects Count */}
+                      {/* Admin Approval Column */}
+                      <td className="py-3.5 px-4 text-center font-mono">
+                        {user.adminApproved ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold inline-flex items-center gap-1">
+                            <Check className="w-3 h-3" />
+                            <span>Approved</span>
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-400 border border-slate-700 font-medium">
+                            Not Approved
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Account Status Badge */}
                       <td className="py-3.5 px-4 font-mono">
-                        <span className="flex items-center gap-1 text-slate-300">
-                          <FolderGit2 className="w-3.5 h-3.5 text-cyan-400" />
-                          <span>{user.projectCount}</span>
-                        </span>
+                        {user.accountStatus === "approved" && (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold flex items-center gap-1 w-fit">
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>Approved</span>
+                          </span>
+                        )}
+                        {user.accountStatus === "pending" && (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/30 font-bold flex items-center gap-1 w-fit">
+                            <Clock className="w-3 h-3 animate-pulse" />
+                            <span>Pending</span>
+                          </span>
+                        )}
+                        {user.accountStatus === "rejected" && (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/30 font-bold flex items-center gap-1 w-fit">
+                            <XCircle className="w-3 h-3" />
+                            <span>Rejected</span>
+                          </span>
+                        )}
+                        {user.accountStatus === "suspended" && (
+                          <span className="px-2 py-0.5 rounded text-[10px] bg-purple-500/10 text-purple-400 border border-purple-500/30 font-bold flex items-center gap-1 w-fit">
+                            <Lock className="w-3 h-3" />
+                            <span>Suspended</span>
+                          </span>
+                        )}
                       </td>
 
                       {/* Joined Date */}
                       <td className="py-3.5 px-4 text-slate-400 font-mono text-[11px]">
                         {new Date(user.createdAt).toLocaleDateString()}
-                      </td>
-
-                      {/* Status Badge */}
-                      <td className="py-3.5 px-4 font-mono">
-                        {user.status === "active" ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold flex items-center gap-1 w-fit">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                            <span>Active</span>
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/30 font-bold flex items-center gap-1 w-fit">
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
-                            <span>Suspended</span>
-                          </span>
-                        )}
                       </td>
 
                       {/* Actions */}
@@ -263,25 +353,71 @@ function UserManagementContent() {
                             <Eye className="w-3.5 h-3.5" />
                           </Link>
 
-                          <button
-                            onClick={() => handleToggleStatus(user)}
-                            className={`p-1.5 rounded-lg transition-colors ${
-                              user.status === "active"
-                                ? "bg-slate-800 hover:bg-rose-500/10 text-rose-400"
-                                : "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400"
-                            }`}
-                            title={user.status === "active" ? "Suspend User" : "Activate User"}
-                          >
-                            {user.status === "active" ? (
-                              <UserX className="w-3.5 h-3.5" />
-                            ) : (
+                          {/* For Pending users */}
+                          {user.accountStatus === "pending" && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setTargetUser(user);
+                                  setModalType("approve");
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-semibold flex items-center gap-1 transition-all"
+                                title="Approve User"
+                              >
+                                <UserCheck className="w-3.5 h-3.5" />
+                                <span>Approve</span>
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  setTargetUser(user);
+                                  setModalType("reject");
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-[11px] font-semibold flex items-center gap-1 transition-all"
+                                title="Reject User"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                                <span>Reject</span>
+                              </button>
+                            </>
+                          )}
+
+                          {/* For Approved users */}
+                          {user.accountStatus === "approved" && (
+                            <button
+                              onClick={() => {
+                                setTargetUser(user);
+                                setModalType("suspend");
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 text-[11px] font-semibold flex items-center gap-1 transition-all"
+                              title="Suspend User"
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                              <span>Suspend</span>
+                            </button>
+                          )}
+
+                          {/* For Rejected or Suspended users */}
+                          {(user.accountStatus === "rejected" || user.accountStatus === "suspended") && (
+                            <button
+                              onClick={() => {
+                                setTargetUser(user);
+                                setModalType("activate");
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-semibold flex items-center gap-1 transition-all"
+                              title="Approve / Activate User"
+                            >
                               <UserCheck className="w-3.5 h-3.5" />
-                            )}
-                          </button>
+                              <span>Approve / Activate</span>
+                            </button>
+                          )}
 
                           <button
-                            onClick={() => setDeletingUser(user)}
-                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/10 text-rose-400 transition-colors"
+                            onClick={() => {
+                              setTargetUser(user);
+                              setModalType("delete");
+                            }}
+                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-rose-400 transition-colors"
                             title="Delete User"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -296,17 +432,24 @@ function UserManagementContent() {
           </div>
         </div>
 
-        {/* Delete Confirmation Modal */}
-        {deletingUser && (
+        {/* Action Confirmation Dialog Modal */}
+        {targetUser && modalType && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
-            <div className="w-full max-w-md p-6 bg-[#090D1A] border border-rose-500/30 rounded-2xl shadow-2xl text-slate-100 font-sans space-y-5">
+            <div className="w-full max-w-md p-6 bg-[#090D1A] border border-slate-800 rounded-2xl shadow-2xl text-slate-100 font-sans space-y-5">
               <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                <div className="flex items-center gap-2 text-rose-400 font-bold text-base">
-                  <AlertTriangle className="w-5 h-5" />
-                  <span>Delete User?</span>
+                <div className="flex items-center gap-2 font-bold text-base">
+                  {modalType === "approve" && <UserCheck className="w-5 h-5 text-emerald-400" />}
+                  {modalType === "reject" && <XCircle className="w-5 h-5 text-rose-400" />}
+                  {modalType === "suspend" && <Lock className="w-5 h-5 text-purple-400" />}
+                  {modalType === "activate" && <UserCheck className="w-5 h-5 text-emerald-400" />}
+                  {modalType === "delete" && <AlertTriangle className="w-5 h-5 text-rose-400" />}
+                  <span className="capitalize">{modalType} User?</span>
                 </div>
                 <button
-                  onClick={() => setDeletingUser(null)}
+                  onClick={() => {
+                    setTargetUser(null);
+                    setModalType(null);
+                  }}
                   className="p-1 text-slate-400 hover:text-slate-200"
                 >
                   <X className="w-4 h-4" />
@@ -315,41 +458,82 @@ function UserManagementContent() {
 
               <div className="space-y-3 text-xs text-slate-300 leading-relaxed">
                 <p>
-                  Are you sure you want to delete user account{" "}
-                  <strong className="text-white font-mono">&quot;{deletingUser.username}&quot;</strong> (
-                  {deletingUser.email})?
+                  User: <strong className="text-white font-mono">&quot;{targetUser.username}&quot;</strong> ({targetUser.email})
                 </p>
-                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[11px] space-y-1 font-mono">
-                  <p className="font-bold uppercase tracking-wider text-[10px]">This will permanently delete:</p>
-                  <ul className="list-disc list-inside space-y-0.5 text-slate-300">
-                    <li>User Auth credentials</li>
-                    <li>User profile record</li>
-                    <li>All projects ({deletingUser.projectCount})</li>
-                    <li>Associated architectures & diagrams</li>
-                  </ul>
-                </div>
-                <p className="text-[11px] text-slate-400 italic">This action cannot be undone.</p>
+
+                {modalType === "approve" && (
+                  <p className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
+                    Are you sure you want to approve this account? The user will be granted immediate access to create and save architectures.
+                  </p>
+                )}
+
+                {modalType === "reject" && (
+                  <div className="space-y-3">
+                    <p className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">
+                      This user will not be able to create architectures or access protected application features.
+                    </p>
+                    <div>
+                      <label className="text-[10px] font-mono text-slate-400 uppercase block mb-1">
+                        Rejection Reason (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={rejectionReason}
+                        onChange={(e) => setRejectionReason(e.target.value)}
+                        placeholder="e.g. Account details incomplete"
+                        className="w-full px-3 py-2 text-xs bg-[#030615] border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-rose-500"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {modalType === "suspend" && (
+                  <p className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-300">
+                    Are you sure you want to suspend this user? A suspended user will be blocked from creating or updating architectures, projects, and calling protected APIs.
+                  </p>
+                )}
+
+                {modalType === "activate" && (
+                  <p className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300">
+                    Activate account for user &quot;{targetUser.username}&quot;? Account status will be set to approved.
+                  </p>
+                )}
+
+                {modalType === "delete" && (
+                  <p className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">
+                    This will permanently delete user account &quot;{targetUser.username}&quot; and all associated projects.
+                  </p>
+                )}
               </div>
 
               <div className="flex items-center gap-2 pt-2">
                 <button
-                  onClick={() => setDeletingUser(null)}
+                  onClick={() => {
+                    setTargetUser(null);
+                    setModalType(null);
+                  }}
                   className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 text-xs font-semibold hover:bg-slate-700"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={handleConfirmDelete}
-                  disabled={isDeleting}
-                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-lg shadow-rose-500/20 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                  onClick={handleActionSubmit}
+                  disabled={isSubmitting}
+                  className={`flex-1 py-2.5 rounded-xl text-white text-xs font-semibold shadow-lg flex items-center justify-center gap-1.5 disabled:opacity-50 ${
+                    modalType === "approve" || modalType === "activate"
+                      ? "bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/20"
+                      : modalType === "suspend"
+                      ? "bg-purple-600 hover:bg-purple-500 shadow-purple-500/20"
+                      : "bg-rose-600 hover:bg-rose-500 shadow-rose-500/20"
+                  }`}
                 >
-                  {isDeleting ? (
+                  {isSubmitting ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Deleting User...</span>
+                      <span>Processing...</span>
                     </>
                   ) : (
-                    <span>Delete User</span>
+                    <span className="capitalize">{modalType} User</span>
                   )}
                 </button>
               </div>
@@ -364,7 +548,9 @@ function UserManagementContent() {
 export default function UserManagementPage() {
   return (
     <AdminGuard>
-      <UserManagementContent />
+      <Suspense fallback={<div className="p-8 text-center text-slate-400 font-mono text-xs">Loading User Management...</div>}>
+        <UserManagementContent />
+      </Suspense>
     </AdminGuard>
   );
 }

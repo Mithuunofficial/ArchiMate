@@ -1,10 +1,101 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { authService } from "@/services/auth.service";
 import { Sparkles, Eye, EyeOff, Check, X, ArrowRight, Loader2, Mail, AlertCircle } from "lucide-react";
+
+function CheckEmailView({ email }: { email: string }) {
+  const [resendStatus, setResendStatus] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
+  const [isResending, setIsResending] = useState(false);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => {
+      setCooldown((prev) => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
+
+  const handleResend = async () => {
+    if (cooldown > 0 || isResending) return;
+    setIsResending(true);
+    setResendStatus(null);
+    try {
+      const res = await authService.resendVerificationEmail(email);
+      if (res.success) {
+        setResendStatus("Verification email sent.");
+        setCooldown(res.cooldownSeconds || 60);
+      } else {
+        setResendStatus(res.error || "Failed to send email.");
+        if (res.cooldownSeconds) {
+          setCooldown(res.cooldownSeconds);
+        }
+      }
+    } catch {
+      setResendStatus("Unable to request verification email.");
+    } finally {
+      setIsResending(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#050816] text-slate-100 font-sans flex items-center justify-center p-4">
+      <div className="w-full max-w-md p-8 sm:p-10 bg-[#0F172A]/90 backdrop-blur-2xl border border-slate-800 rounded-3xl shadow-2xl text-center space-y-6">
+        <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mx-auto text-cyan-400 shadow-lg shadow-cyan-500/10">
+          <Mail className="w-7 h-7" />
+        </div>
+
+        <div className="space-y-2">
+          <span className="text-[10px] font-mono text-cyan-400 uppercase tracking-widest font-bold block">
+            Account Created
+          </span>
+          <h2 className="text-2xl font-extrabold text-white">Check your email</h2>
+          <p className="text-xs text-slate-300 leading-relaxed pt-1">
+            We&apos;ve sent a verification link to <strong className="text-cyan-300 font-mono">{email}</strong>.
+          </p>
+          <p className="text-xs text-slate-400 pt-1">
+            Please verify your email to activate your ArchiMate account.
+          </p>
+        </div>
+
+        {resendStatus && (
+          <div className="p-3 rounded-xl bg-slate-800/80 border border-slate-700 text-xs text-cyan-300 font-mono">
+            {resendStatus}
+          </div>
+        )}
+
+        <div className="space-y-3 pt-2">
+          <button
+            onClick={handleResend}
+            disabled={cooldown > 0 || isResending}
+            className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isResending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-cyan-400" />
+                <span>Sending email...</span>
+              </>
+            ) : cooldown > 0 ? (
+              <span>Resend available in {cooldown} seconds</span>
+            ) : (
+              <span>Resend Verification Email</span>
+            )}
+          </button>
+
+          <Link
+            href="/login"
+            className="inline-flex w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-semibold text-xs items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 transition-all"
+          >
+            Back to Login
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function SignupPage() {
   const [username, setUsername] = useState("");
@@ -63,30 +154,7 @@ export default function SignupPage() {
   };
 
   if (emailSent) {
-    return (
-      <div className="min-h-screen bg-[#050816] text-slate-100 font-sans flex items-center justify-center p-4">
-        <div className="w-full max-w-md p-8 bg-[#0F172A]/80 backdrop-blur-2xl border border-slate-800 rounded-3xl shadow-2xl text-center space-y-6">
-          <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mx-auto text-cyan-400">
-            <Mail className="w-7 h-7" />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-bold text-white">Check your email</h2>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              We&apos;ve sent a verification link to <span className="text-cyan-300 font-semibold">{email}</span>.
-            </p>
-            <p className="text-xs text-slate-400">
-              Please verify your account before continuing.
-            </p>
-          </div>
-          <Link
-            href="/login"
-            className="inline-flex w-full py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-semibold text-xs items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 transition-all"
-          >
-            Back to Login
-          </Link>
-        </div>
-      </div>
-    );
+    return <CheckEmailView email={email} />;
   }
 
   return (

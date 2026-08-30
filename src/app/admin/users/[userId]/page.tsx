@@ -9,13 +9,19 @@ import { useAdminAuth } from "@/hooks/useAdminAuth";
 import { useToast } from "@/hooks/useToast";
 import { Project } from "@/types/project";
 import {
-  User,
   ArrowLeft,
   FolderGit2,
-  UserX,
   UserCheck,
+  UserX,
   Loader2,
   ExternalLink,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Lock,
+  Check,
+  X,
+  ShieldCheck,
 } from "lucide-react";
 
 interface UserDetailData {
@@ -23,7 +29,16 @@ interface UserDetailData {
   username: string;
   email: string;
   role: "user" | "admin";
-  status: "active" | "suspended";
+  status: "pending" | "approved" | "rejected" | "suspended";
+  accountStatus: "pending" | "approved" | "rejected" | "suspended";
+  emailVerified: boolean;
+  adminApproved: boolean;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectedBy?: string | null;
+  rejectedAt?: string | null;
+  suspendedAt?: string | null;
+  rejectionReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -35,6 +50,7 @@ function UserDetailPageContent() {
   const [userInfo, setUserInfo] = useState<UserDetailData | null>(null);
   const [userProjects, setUserProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { adminSession } = useAdminAuth();
   const { toastSuccess, toastError } = useToast();
@@ -68,28 +84,29 @@ function UserDetailPageContent() {
     }
   }, [adminSession, userId]);
 
-  const handleToggleStatus = async () => {
+  const handleAction = async (actionType: "approve" | "reject" | "suspend" | "activate") => {
     if (!userInfo) return;
-    const nextStatus = userInfo.status === "active" ? "suspended" : "active";
+    setIsSubmitting(true);
     try {
-      const res = await fetch(`/api/admin/users/${userId}/update`, {
+      const res = await fetch(`/api/admin/users/${userId}/${actionType}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${adminSession?.access_token || ""}`,
         },
-        body: JSON.stringify({ status: nextStatus }),
       });
 
       const data = await res.json();
       if (res.ok) {
-        toastSuccess(`User status updated to ${nextStatus}.`);
-        setUserInfo({ ...userInfo, status: nextStatus });
+        toastSuccess(`Action ${actionType.toUpperCase()} executed successfully.`);
+        loadUserDetail();
       } else {
-        toastError(data.error || "Failed to update user status.");
+        toastError(data.error || "Action failed.");
       }
     } catch {
-      toastError("Unable to update status.");
+      toastError("Unable to execute administrative action.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -139,12 +156,27 @@ function UserDetailPageContent() {
             </Link>
             <div>
               <span className="text-[10px] font-mono text-cyan-400 font-bold uppercase tracking-wider block">
-                User Details
+                Admin User Details
               </span>
               <h1 className="text-2xl font-bold text-white flex items-center gap-2">
                 <span>{userInfo.username}</span>
-                {userInfo.status === "suspended" && (
+                {userInfo.accountStatus === "approved" && (
+                  <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-mono font-semibold">
+                    APPROVED
+                  </span>
+                )}
+                {userInfo.accountStatus === "pending" && (
+                  <span className="px-2 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/30 font-mono font-semibold">
+                    PENDING APPROVAL
+                  </span>
+                )}
+                {userInfo.accountStatus === "rejected" && (
                   <span className="px-2 py-0.5 rounded text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/30 font-mono font-semibold">
+                    REJECTED
+                  </span>
+                )}
+                {userInfo.accountStatus === "suspended" && (
+                  <span className="px-2 py-0.5 rounded text-[10px] bg-purple-500/10 text-purple-400 border border-purple-500/30 font-mono font-semibold">
                     SUSPENDED
                   </span>
                 )}
@@ -152,34 +184,59 @@ function UserDetailPageContent() {
             </div>
           </div>
 
-          <button
-            onClick={handleToggleStatus}
-            className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all shadow-md ${
-              userInfo.status === "active"
-                ? "bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20"
-                : "bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20"
-            }`}
-          >
-            {userInfo.status === "active" ? (
+          <div className="flex items-center gap-2">
+            {userInfo.accountStatus === "pending" && (
               <>
-                <UserX className="w-4 h-4" />
-                <span>Suspend User Account</span>
-              </>
-            ) : (
-              <>
-                <UserCheck className="w-4 h-4" />
-                <span>Activate User Account</span>
+                <button
+                  onClick={() => handleAction("approve")}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md flex items-center gap-1.5 transition-all"
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>Approve Account</span>
+                </button>
+                <button
+                  onClick={() => handleAction("reject")}
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow-md flex items-center gap-1.5 transition-all"
+                >
+                  <XCircle className="w-4 h-4" />
+                  <span>Reject Account</span>
+                </button>
               </>
             )}
-          </button>
+
+            {userInfo.accountStatus === "approved" && (
+              <button
+                onClick={() => handleAction("suspend")}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-md flex items-center gap-1.5 transition-all"
+              >
+                <Lock className="w-4 h-4" />
+                <span>Suspend Account</span>
+              </button>
+            )}
+
+            {(userInfo.accountStatus === "rejected" || userInfo.accountStatus === "suspended") && (
+              <button
+                onClick={() => handleAction("activate")}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md flex items-center gap-1.5 transition-all"
+              >
+                <UserCheck className="w-4 h-4" />
+                <span>Approve / Activate Account</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* User Stats & Profile Overview Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Main Info */}
-          <div className="md:col-span-2 p-6 rounded-2xl border border-slate-800 bg-[#090D1A] space-y-4">
-            <h3 className="text-sm font-bold text-slate-200 border-b border-slate-800 pb-2">
-              Profile Metadata
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* User Information */}
+          <div className="p-6 rounded-2xl border border-slate-800 bg-[#090D1A] space-y-4">
+            <h3 className="text-sm font-bold text-slate-200 border-b border-slate-800 pb-2 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-cyan-400" />
+              <span>User Information</span>
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-sans">
               <div>
@@ -195,42 +252,101 @@ function UserDetailPageContent() {
                 <span className="font-bold text-slate-100 font-mono uppercase">{userInfo.role}</span>
               </div>
               <div>
-                <span className="text-slate-400 font-mono block text-[10px] uppercase">Account Status</span>
-                <span
-                  className={`font-bold font-mono ${
-                    userInfo.status === "active" ? "text-emerald-400" : "text-rose-400"
-                  }`}
-                >
-                  {userInfo.status.toUpperCase()}
-                </span>
-              </div>
-              <div>
                 <span className="text-slate-400 font-mono block text-[10px] uppercase">Joined Date</span>
                 <span className="text-slate-200 font-mono">
-                  {new Date(userInfo.createdAt).toLocaleDateString()}
+                  {new Date(userInfo.createdAt).toLocaleString()}
                 </span>
-              </div>
-              <div>
-                <span className="text-slate-400 font-mono block text-[10px] uppercase">Last Active</span>
-                <span className="text-slate-200 font-mono">Today</span>
               </div>
             </div>
           </div>
 
-          {/* Quick Metrics */}
-          <div className="p-6 rounded-2xl border border-slate-800 bg-[#090D1A] space-y-4 flex flex-col justify-between">
-            <h3 className="text-sm font-bold text-slate-200 border-b border-slate-800 pb-2">
-              Resource Summary
+          {/* Approval Information */}
+          <div className="p-6 rounded-2xl border border-slate-800 bg-[#090D1A] space-y-4">
+            <h3 className="text-sm font-bold text-slate-200 border-b border-slate-800 pb-2 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span>Approval Information</span>
             </h3>
-            <div className="space-y-4 font-mono">
-              <div className="flex items-center justify-between p-3 rounded-xl bg-[#030615] border border-slate-800">
-                <span className="text-xs text-slate-400">Projects Created</span>
-                <span className="text-lg font-bold text-cyan-300">{userProjects.length}</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-sans">
+              <div>
+                <span className="text-slate-400 font-mono block text-[10px] uppercase">Email Verified</span>
+                <span className="font-bold font-mono flex items-center gap-1.5 pt-0.5">
+                  {userInfo.emailVerified ? (
+                    <span className="text-emerald-400 flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Yes (Verified)</span>
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 flex items-center gap-1">
+                      <X className="w-3.5 h-3.5 text-slate-500" />
+                      <span>No (Not Verified)</span>
+                    </span>
+                  )}
+                </span>
               </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-[#030615] border border-slate-800">
-                <span className="text-xs text-slate-400">Architectures</span>
-                <span className="text-lg font-bold text-blue-300">{architecturesCount}</span>
+
+              <div>
+                <span className="text-slate-400 font-mono block text-[10px] uppercase">Admin Approved</span>
+                <span className="font-bold font-mono flex items-center gap-1.5 pt-0.5">
+                  {userInfo.adminApproved ? (
+                    <span className="text-emerald-400 flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Yes (Approved)</span>
+                    </span>
+                  ) : (
+                    <span className="text-slate-400 flex items-center gap-1">
+                      <X className="w-3.5 h-3.5 text-slate-500" />
+                      <span>No</span>
+                    </span>
+                  )}
+                </span>
               </div>
+
+              <div>
+                <span className="text-slate-400 font-mono block text-[10px] uppercase">Final Account Status</span>
+                <span
+                  className={`font-bold font-mono uppercase ${
+                    userInfo.accountStatus === "approved"
+                      ? "text-emerald-400"
+                      : userInfo.accountStatus === "pending"
+                      ? "text-amber-400"
+                      : userInfo.accountStatus === "rejected"
+                      ? "text-rose-400"
+                      : "text-purple-400"
+                  }`}
+                >
+                  {userInfo.accountStatus}
+                </span>
+              </div>
+
+              {userInfo.approvedBy && (
+                <>
+                  <div>
+                    <span className="text-slate-400 font-mono block text-[10px] uppercase">Approved By</span>
+                    <span className="font-bold text-slate-100 font-mono">{userInfo.approvedBy}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-mono block text-[10px] uppercase">Approved At</span>
+                    <span className="text-slate-200 font-mono">
+                      {new Date(userInfo.approvedAt!).toLocaleString()}
+                    </span>
+                  </div>
+                </>
+              )}
+
+              {userInfo.rejectedBy && (
+                <>
+                  <div>
+                    <span className="text-slate-400 font-mono block text-[10px] uppercase">Rejected By</span>
+                    <span className="font-bold text-rose-300 font-mono">{userInfo.rejectedBy}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 font-mono block text-[10px] uppercase">Rejected At</span>
+                    <span className="text-slate-200 font-mono">
+                      {new Date(userInfo.rejectedAt!).toLocaleString()}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

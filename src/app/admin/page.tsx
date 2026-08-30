@@ -26,6 +26,10 @@ import { useToast } from "@/hooks/useToast";
 
 interface StatsData {
   totalUsers: number;
+  pendingApproval: number;
+  approvedUsers: number;
+  rejectedUsers: number;
+  suspendedUsers: number;
   totalProjects: number;
   totalArchitectures: number;
   newUsersThisWeek: number;
@@ -146,7 +150,7 @@ function AdminLoginView() {
               required
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Admin-Archimate"
+              placeholder="User-Name"
               className="w-full px-4 py-2.5 text-xs bg-[#030615]/80 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-all font-mono"
             />
           </div>
@@ -252,7 +256,7 @@ function AdminDashboardView() {
               Admin Dashboard
             </h1>
             <p className="text-xs sm:text-sm text-slate-400">
-              Real-time platform metrics, user management, and system activity logs
+              Real-time platform metrics, dual approval management, and system activity logs
             </p>
           </div>
 
@@ -264,86 +268,129 @@ function AdminDashboardView() {
           </div>
         </div>
 
+        {/* Pending Approval Notification Banner */}
+        {stats && stats.pendingApproval > 0 && (
+          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-white">Pending Approval Request</h4>
+                <p className="text-xs text-amber-200">
+                  <strong>{stats.pendingApproval}</strong> {stats.pendingApproval === 1 ? "user is" : "users are"} waiting for administrator approval.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/admin/users?status=pending"
+              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-md shrink-0"
+            >
+              Review Users
+            </Link>
+          </div>
+        )}
+
         {/* Real Statistics Metric Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {/* Total Users */}
-          <div className="p-5 rounded-2xl border border-slate-800 bg-[#090D1A] shadow-xl space-y-3 relative overflow-hidden">
+          <div className="p-4 rounded-2xl border border-slate-800 bg-[#090D1A] shadow-xl space-y-2 relative overflow-hidden">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-mono uppercase text-slate-400 font-bold">
+              <span className="text-[11px] font-mono uppercase text-slate-400 font-bold">
                 Total Users
               </span>
-              <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400">
+              <div className="p-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
                 <Users className="w-4 h-4" />
               </div>
             </div>
             {isLoadingStats ? (
-              <div className="h-8 w-20 bg-slate-800 animate-pulse rounded-lg" />
+              <div className="h-7 w-16 bg-slate-800 animate-pulse rounded-lg" />
             ) : (
-              <p className="text-3xl font-extrabold text-white font-mono">
+              <p className="text-2xl font-extrabold text-white font-mono">
                 {stats?.totalUsers ?? 0}
               </p>
             )}
-            <p className="text-[11px] text-slate-400">Registered Supabase Auth accounts</p>
+            <p className="text-[10px] text-slate-400">Registered Supabase accounts</p>
           </div>
 
-          {/* Total Projects */}
-          <div className="p-5 rounded-2xl border border-slate-800 bg-[#090D1A] shadow-xl space-y-3 relative overflow-hidden">
+          {/* Pending Approval */}
+          <div className="p-4 rounded-2xl border border-amber-500/30 bg-[#090D1A] shadow-xl space-y-2 relative overflow-hidden">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-mono uppercase text-slate-400 font-bold">
-                Total Projects
+              <span className="text-[11px] font-mono uppercase text-amber-400 font-bold">
+                Pending Approval
               </span>
-              <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-                <FolderGit2 className="w-4 h-4" />
+              <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                <AlertCircle className="w-4 h-4" />
               </div>
             </div>
             {isLoadingStats ? (
-              <div className="h-8 w-20 bg-slate-800 animate-pulse rounded-lg" />
+              <div className="h-7 w-16 bg-slate-800 animate-pulse rounded-lg" />
             ) : (
-              <p className="text-3xl font-extrabold text-cyan-300 font-mono">
-                {stats?.totalProjects ?? 0}
+              <p className="text-2xl font-extrabold text-amber-300 font-mono">
+                {stats?.pendingApproval ?? 0}
               </p>
             )}
-            <p className="text-[11px] text-slate-400">Saved user architecture projects</p>
+            <p className="text-[10px] text-slate-400">Awaiting email / admin review</p>
           </div>
 
-          {/* Total Architectures */}
-          <div className="p-5 rounded-2xl border border-slate-800 bg-[#090D1A] shadow-xl space-y-3 relative overflow-hidden">
+          {/* Approved Users */}
+          <div className="p-4 rounded-2xl border border-emerald-500/30 bg-[#090D1A] shadow-xl space-y-2 relative overflow-hidden">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-mono uppercase text-slate-400 font-bold">
-                Total Architectures
+              <span className="text-[11px] font-mono uppercase text-emerald-400 font-bold">
+                Approved Users
               </span>
-              <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
-                <Layers className="w-4 h-4" />
+              <div className="p-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                <CheckCircle2 className="w-4 h-4" />
               </div>
             </div>
             {isLoadingStats ? (
-              <div className="h-8 w-20 bg-slate-800 animate-pulse rounded-lg" />
+              <div className="h-7 w-16 bg-slate-800 animate-pulse rounded-lg" />
             ) : (
-              <p className="text-3xl font-extrabold text-emerald-300 font-mono">
-                {stats?.totalArchitectures ?? 0}
+              <p className="text-2xl font-extrabold text-emerald-300 font-mono">
+                {stats?.approvedUsers ?? 0}
               </p>
             )}
-            <p className="text-[11px] text-slate-400">Generated component topologies</p>
+            <p className="text-[10px] text-slate-400">Email verified or admin approved</p>
           </div>
 
-          {/* New Users */}
-          <div className="p-5 rounded-2xl border border-slate-800 bg-[#090D1A] shadow-xl space-y-3 relative overflow-hidden">
+          {/* Rejected Users */}
+          <div className="p-4 rounded-2xl border border-slate-800 bg-[#090D1A] shadow-xl space-y-2 relative overflow-hidden">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-mono uppercase text-slate-400 font-bold">
-                New Users
+              <span className="text-[11px] font-mono uppercase text-rose-400 font-bold">
+                Rejected
               </span>
-              <div className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
-                <TrendingUp className="w-4 h-4" />
+              <div className="p-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400">
+                <AlertCircle className="w-4 h-4" />
               </div>
             </div>
             {isLoadingStats ? (
-              <div className="h-8 w-20 bg-slate-800 animate-pulse rounded-lg" />
+              <div className="h-7 w-16 bg-slate-800 animate-pulse rounded-lg" />
             ) : (
-              <p className="text-3xl font-extrabold text-indigo-300 font-mono">
-                +{stats?.newUsersThisWeek ?? 0}
+              <p className="text-2xl font-extrabold text-rose-300 font-mono">
+                {stats?.rejectedUsers ?? 0}
               </p>
             )}
-            <p className="text-[11px] text-slate-400">Signups in the last 7 days</p>
+            <p className="text-[10px] text-slate-400">Registration rejected</p>
+          </div>
+
+          {/* Suspended Users */}
+          <div className="p-4 rounded-2xl border border-slate-800 bg-[#090D1A] shadow-xl space-y-2 relative overflow-hidden">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-mono uppercase text-purple-400 font-bold">
+                Suspended
+              </span>
+              <div className="p-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 text-purple-400">
+                <Lock className="w-4 h-4" />
+              </div>
+            </div>
+            {isLoadingStats ? (
+              <div className="h-7 w-16 bg-slate-800 animate-pulse rounded-lg" />
+            ) : (
+              <p className="text-2xl font-extrabold text-purple-300 font-mono">
+                {stats?.suspendedUsers ?? 0}
+              </p>
+            )}
+            <p className="text-[10px] text-slate-400">Access suspended</p>
           </div>
         </div>
 
