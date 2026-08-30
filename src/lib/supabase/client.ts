@@ -15,13 +15,12 @@ export const isSupabaseConfigured = (): boolean => {
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
   return (
     !!url &&
-    !url.includes("placeholder-project") &&
+    url !== "https://placeholder-project.supabase.co" &&
     !url.includes("your-project-ref") &&
     !url.includes("YOUR_SUPABASE_URL") &&
     !!key &&
     key !== "placeholder-anon-key" &&
-    !key.includes("your-supabase-anon-key") &&
-    !key.includes("placeholder")
+    !key.includes("your-supabase-anon-key")
   );
 };
 

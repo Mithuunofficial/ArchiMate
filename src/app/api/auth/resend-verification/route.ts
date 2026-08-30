@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase/client";
 
 // In-memory rate limiting map: email -> timestamp (ms)
 const resendCooldowns = new Map<string, number>();
@@ -14,6 +14,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         { error: "A valid email address is required." },
         { status: 400 }
+      );
+    }
+
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json(
+        { error: "Authentication service is temporarily unavailable. Please try again later." },
+        { status: 503 }
       );
     }
 
@@ -43,6 +50,7 @@ export async function POST(req: NextRequest) {
     });
 
     if (error) {
+      console.error("[Resend Email Error]:", error);
       return NextResponse.json(
         { error: error.message || "Failed to resend verification email." },
         { status: 400 }
@@ -58,6 +66,7 @@ export async function POST(req: NextRequest) {
       cooldownSeconds: COOLDOWN_SECONDS,
     });
   } catch (err: any) {
+    console.error("[Resend Email Internal Error]:", err?.message || err);
     return NextResponse.json(
       { error: "Unable to process resend request. Please try again." },
       { status: 500 }

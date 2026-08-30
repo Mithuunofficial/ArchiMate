@@ -37,140 +37,171 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Check existing username in local dev store
-    if (DevAuthStore.findByUsername(trimmedUsername)) {
-      return NextResponse.json(
-        { error: "Username is already taken." },
-        { status: 400 }
-      );
-    }
+    const configured = isSupabaseConfigured();
 
-    // 2. Check existing email in local dev store
-    if (DevAuthStore.findByEmail(trimmedEmail)) {
-      return NextResponse.json(
-        { error: "This email is already registered." },
-        { status: 400 }
-      );
-    }
+    if (!configured) {
+      console.warn("[SignUp] Supabase environment variables are missing or unconfigured.");
 
-    // 3. Check existing username/email in Supabase profiles table if configured & reachable
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: existingProfile } = await supabaseAdmin
-          .from("profiles")
-          .select("id, username")
-          .ilike("username", trimmedUsername)
-          .maybeSingle();
-
-        if (existingProfile) {
+      // If in dev mode, fallback to DevAuthStore for local offline development
+      if (process.env.NODE_ENV !== "production") {
+        if (DevAuthStore.findByUsername(trimmedUsername)) {
           return NextResponse.json(
             { error: "Username is already taken." },
             { status: 400 }
           );
         }
-
-        const { data: existingEmailProfile } = await supabaseAdmin
-          .from("profiles")
-          .select("id, email")
-          .ilike("email", trimmedEmail)
-          .maybeSingle();
-
-        if (existingEmailProfile) {
+        if (DevAuthStore.findByEmail(trimmedEmail)) {
           return NextResponse.json(
             { error: "This email is already registered." },
             { status: 400 }
           );
         }
-      } catch {
-        // Ignore network check failure and continue to auth attempt
+
+        const devRecord = DevAuthStore.createUser(trimmedUsername, trimmedEmail, password);
+        const user = {
+          id: devRecord.id,
+          email: devRecord.email,
+          user_metadata: { username: devRecord.username, role: "user" },
+          aud: "authenticated",
+          role: "authenticated",
+          created_at: devRecord.createdAt,
+        };
+
+        return NextResponse.json({
+          success: true,
+          user,
+          session: null,
+          needsEmailVerification: true,
+          message: "Account created (dev mode).",
+        });
       }
+
+      return NextResponse.json(
+        { error: "Authentication service is temporarily unavailable. Please verify environment configuration." },
+        { status: 503 }
+      );
     }
 
+    // 1. Check existing username/email in Supabase profiles table
+    try {
+      const { data: existingProfile } = await supabaseAdmin
+        .from("profiles")
+        .select("id, username")
+        .ilike("username", trimmedUsername)
+        .maybeSingle();
+
+      if (existingProfile) {
+        return NextResponse.json(
+          { error: "Username is already taken." },
+          { status: 400 }
+        );
+      }
+
+      const { data: existingEmailProfile } = await supabaseAdmin
+        .from("profiles")
+        .select("id, email")
+        .ilike("email", trimmedEmail)
+        .maybeSingle();
+
+      if (existingEmailProfile) {
+        return NextResponse.json(
+          { error: "This email is already registered." },
+          { status: 400 }
+        );
+      }
+    } catch (err: any) {
+      console.error("[SignUp Profile Check Error]:", err?.message || err);
+    }
+
+    // 2. Register user with Supabase Auth
     let user: any = null;
     let session: any = null;
 
-    // 4. Register user with Supabase Auth (sending verification email)
-    if (isSupabaseConfigured()) {
+    const { data: clientData, error: clientErr } = await supabase.auth.signUp({
+      email: trimmedEmail,
+      password: password,
+      options: {
+        data: { username: trimmedUsername, role: "user" },
+        emailRedirectTo: `${req.nextUrl.origin}/login?verified=true`,
+      },
+    });
+
+    if (clientErr) {
+      console.error("[Supabase SignUp Error]:", clientErr);
+
+      const isDup =
+        clientErr.message?.includes("already registered") ||
+        clientErr.message?.includes("User already exists") ||
+        clientErr.status === 422;
+
+      if (isDup) {
+        return NextResponse.json(
+          { error: "This email is already registered." },
+          { status: 400 }
+        );
+      }
+
+      // Try admin createUser fallback if standard signUp returns network or config error
       try {
-        const { data: clientData, error: clientErr } = await supabase.auth.signUp({
+        const { data: adminData, error: adminErr } = await supabaseAdmin.auth.admin.createUser({
           email: trimmedEmail,
           password: password,
-          options: {
-            data: { username: trimmedUsername, role: "user" },
-            emailRedirectTo: `${req.nextUrl.origin}/login?verified=true`,
-          },
+          email_confirm: false,
+          user_metadata: { username: trimmedUsername, role: "user" },
         });
 
-        if (clientErr) {
-          const isDup =
-            clientErr.message.includes("already registered") ||
-            clientErr.message.includes("User already exists") ||
-            clientErr.status === 422;
-
-          if (isDup) {
-            return NextResponse.json(
-              { error: "This email is already registered." },
-              { status: 400 }
-            );
-          }
-
-          // Fallback to admin createUser with email_confirm: false
-          const { data: adminData } = await supabaseAdmin.auth.admin.createUser({
-            email: trimmedEmail,
-            password: password,
-            email_confirm: false,
-            user_metadata: { username: trimmedUsername, role: "user" },
-          });
-
-          if (adminData?.user) {
-            user = adminData.user;
-          }
-        } else if (clientData?.user) {
-          user = clientData.user;
-          session = clientData.session;
-        }
-
-        if (user) {
-          const isEmailConfirmed = !!user.email_confirmed_at;
-          await supabaseAdmin.from("profiles").upsert(
-            {
-              id: user.id,
-              username: trimmedUsername,
-              email: trimmedEmail,
-              role: "user",
-              status: isEmailConfirmed ? "approved" : "pending",
-              account_status: isEmailConfirmed ? "approved" : "pending",
-              email_verified: isEmailConfirmed,
-              admin_approved: false,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "id" }
+        if (adminErr) {
+          console.error("[Supabase Admin CreateUser Error]:", adminErr);
+          return NextResponse.json(
+            { error: clientErr.message || adminErr.message || "Unable to create your account. Please try again." },
+            { status: clientErr.status || 400 }
           );
         }
+
+        user = adminData?.user;
       } catch {
-        // Ignore network error and handle dev fallback below
+        return NextResponse.json(
+          { error: clientErr.message || "Unable to create your account. Please try again later." },
+          { status: 503 }
+        );
       }
+    } else if (clientData?.user) {
+      user = clientData.user;
+      session = clientData.session;
     }
 
-    // 5. Fallback creation in dev store if Supabase Auth host was unconfigured or unreachable
     if (!user) {
-      const devRecord = DevAuthStore.createUser(trimmedUsername, trimmedEmail, password);
-      user = {
-        id: devRecord.id,
-        email: devRecord.email,
-        user_metadata: { username: devRecord.username, role: "user" },
-        aud: "authenticated",
-        role: "authenticated",
-        created_at: devRecord.createdAt,
-      };
-
-      session = null; // Require user to click verify or admin approve
-    } else {
-      // Also sync to dev store for local signin consistency
-      DevAuthStore.createUser(trimmedUsername, trimmedEmail, password);
+      return NextResponse.json(
+        { error: "Unable to create user account with Supabase Auth." },
+        { status: 500 }
+      );
     }
 
-    const needsEmailVerification = !user?.email_confirmed_at;
+    // 3. Upsert user profile into profiles table
+    const isEmailConfirmed = !!user.email_confirmed_at;
+    try {
+      await supabaseAdmin.from("profiles").upsert(
+        {
+          id: user.id,
+          username: trimmedUsername,
+          email: trimmedEmail,
+          role: "user",
+          status: isEmailConfirmed ? "approved" : "pending",
+          account_status: isEmailConfirmed ? "approved" : "pending",
+          email_verified: isEmailConfirmed,
+          admin_approved: false,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" }
+      );
+    } catch (dbErr: any) {
+      console.error("[Supabase Profile Upsert Error]:", dbErr?.message || dbErr);
+    }
+
+    // Sync to dev store for local signin consistency if running locally
+    DevAuthStore.createUser(trimmedUsername, trimmedEmail, password);
+
+    const needsEmailVerification = !user.email_confirmed_at;
 
     return NextResponse.json({
       success: true,
@@ -179,11 +210,11 @@ export async function POST(req: NextRequest) {
       needsEmailVerification,
       message: "Account created successfully. Please check your email to verify your ArchiMate account.",
     });
-  } catch {
+  } catch (err: any) {
+    console.error("[SignUp Internal Error]:", err?.message || err);
     return NextResponse.json(
       { error: "Unable to create your account. Please try again later." },
       { status: 500 }
     );
   }
 }
-

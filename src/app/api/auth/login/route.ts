@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server-admin";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase/client";
 import { DevAuthStore } from "@/lib/dev-auth-store";
 
 export async function POST(req: NextRequest) {
@@ -17,42 +17,46 @@ export async function POST(req: NextRequest) {
 
     const trimmedUsername = username.trim();
     const trimmedPassword = password.trim();
+    const configured = isSupabaseConfigured();
 
     let targetEmail: string | null = null;
     let profileData: any = null;
-    let devRecord = DevAuthStore.findByUsername(trimmedUsername);
 
-    // 1. Resolve username to email using Supabase profiles table
-    try {
-      const { data: profile } = await supabaseAdmin
-        .from("profiles")
-        .select("*")
-        .ilike("username", trimmedUsername)
-        .maybeSingle();
+    // 1. Resolve username to email using Supabase profiles table if configured
+    if (configured) {
+      try {
+        const { data: profile } = await supabaseAdmin
+          .from("profiles")
+          .select("*")
+          .ilike("username", trimmedUsername)
+          .maybeSingle();
 
-      if (profile) {
-        profileData = profile;
-        targetEmail = profile.email;
+        if (profile) {
+          profileData = profile;
+          targetEmail = profile.email;
+        }
+      } catch (err: any) {
+        console.error("[Login Profile Lookup Error]:", err?.message || err);
       }
-    } catch {
-      // Ignore network errors
     }
 
-    // Check dev store fallback if profile not found in Supabase
-    if (!targetEmail && devRecord) {
-      targetEmail = devRecord.email;
-      profileData = {
-        id: devRecord.id,
-        username: devRecord.username,
-        email: devRecord.email,
-        role: devRecord.role,
-        status: devRecord.status,
-        created_at: devRecord.createdAt,
-        updated_at: devRecord.updatedAt,
-      };
+    // Check dev store fallback if unconfigured or profile not found in Supabase
+    if (!targetEmail && (!configured || process.env.NODE_ENV !== "production")) {
+      const devRecord = DevAuthStore.findByUsername(trimmedUsername);
+      if (devRecord) {
+        targetEmail = devRecord.email;
+        profileData = {
+          id: devRecord.id,
+          username: devRecord.username,
+          email: devRecord.email,
+          role: devRecord.role,
+          status: devRecord.status,
+          created_at: devRecord.createdAt,
+          updated_at: devRecord.updatedAt,
+        };
+      }
     }
 
-    // If username is not found
     if (!targetEmail) {
       return NextResponse.json(
         { error: "Invalid username or password." },
@@ -60,7 +64,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Check if account is suspended or rejected from initial profile data
+    // 2. Check if account is suspended or rejected
     if (profileData) {
       const currentStatus = profileData.account_status || profileData.status;
       if (currentStatus === "suspended") {
@@ -81,23 +85,24 @@ export async function POST(req: NextRequest) {
     let authenticatedSession: any = null;
 
     // 3. Authenticate with Supabase Auth using resolved email + password
-    try {
-      const { data: authData } = await supabase.auth.signInWithPassword({
+    if (configured) {
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: targetEmail,
         password: trimmedPassword,
       });
 
-      if (authData?.user && authData?.session) {
+      if (authError) {
+        console.error("[Supabase Login Error]:", authError);
+      } else if (authData?.user && authData?.session) {
         authenticatedUser = authData.user;
         authenticatedSession = authData.session;
       }
-    } catch {
-      // Ignore network errors
     }
 
-    // 4. Fallback authentication via DevAuthStore if Supabase Auth host was unreachable
-    if (!authenticatedUser && devRecord) {
-      if (devRecord.passwordHash === trimmedPassword) {
+    // 4. Fallback authentication via DevAuthStore ONLY in offline local dev mode
+    if (!authenticatedUser && !configured && process.env.NODE_ENV !== "production") {
+      const devRecord = DevAuthStore.findByUsername(trimmedUsername);
+      if (devRecord && devRecord.passwordHash === trimmedPassword) {
         authenticatedUser = {
           id: devRecord.id,
           email: devRecord.email,
@@ -138,7 +143,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Update profile table in background if status changed or email was confirmed
-    if (profileData && (emailVerified !== profileData.email_verified || computedStatus !== profileData.account_status)) {
+    if (configured && profileData && (emailVerified !== profileData.email_verified || computedStatus !== profileData.account_status)) {
       try {
         await supabaseAdmin
           .from("profiles")
@@ -149,8 +154,8 @@ export async function POST(req: NextRequest) {
             updated_at: new Date().toISOString(),
           })
           .eq("id", authenticatedUser.id);
-      } catch {
-        // Ignore DB sync error
+      } catch (err: any) {
+        console.error("[Login Profile Update Error]:", err?.message || err);
       }
     }
 
@@ -178,8 +183,9 @@ export async function POST(req: NextRequest) {
       profile: responseProfile,
     });
   } catch (err: any) {
+    console.error("[Login Internal Error]:", err?.message || err);
     return NextResponse.json(
-      { error: "Authentication failed. Please try again." },
+      { error: "Authentication failed. Please try again later." },
       { status: 500 }
     );
   }
