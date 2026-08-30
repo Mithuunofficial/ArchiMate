@@ -42,19 +42,12 @@ export async function POST(req: NextRequest) {
     if (!configured) {
       console.warn("[SignUp] Supabase environment variables are missing or unconfigured.");
 
-      // If in dev mode, fallback to DevAuthStore for local offline development
       if (process.env.NODE_ENV !== "production") {
         if (DevAuthStore.findByUsername(trimmedUsername)) {
-          return NextResponse.json(
-            { error: "Username is already taken." },
-            { status: 400 }
-          );
+          return NextResponse.json({ error: "Username is already taken." }, { status: 400 });
         }
         if (DevAuthStore.findByEmail(trimmedEmail)) {
-          return NextResponse.json(
-            { error: "This email is already registered." },
-            { status: 400 }
-          );
+          return NextResponse.json({ error: "This email is already registered." }, { status: 400 });
         }
 
         const devRecord = DevAuthStore.createUser(trimmedUsername, trimmedEmail, password);
@@ -77,7 +70,7 @@ export async function POST(req: NextRequest) {
       }
 
       return NextResponse.json(
-        { error: "Authentication service is temporarily unavailable. Please verify environment configuration." },
+        { error: "Authentication service configuration error. Please verify NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel environment variables." },
         { status: 503 }
       );
     }
@@ -91,10 +84,7 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (existingProfile) {
-        return NextResponse.json(
-          { error: "Username is already taken." },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "Username is already taken." }, { status: 400 });
       }
 
       const { data: existingEmailProfile } = await supabaseAdmin
@@ -104,10 +94,7 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (existingEmailProfile) {
-        return NextResponse.json(
-          { error: "This email is already registered." },
-          { status: 400 }
-        );
+        return NextResponse.json({ error: "This email is already registered." }, { status: 400 });
       }
     } catch (err: any) {
       console.error("[SignUp Profile Check Error]:", err?.message || err);
@@ -135,9 +122,19 @@ export async function POST(req: NextRequest) {
         clientErr.status === 422;
 
       if (isDup) {
+        return NextResponse.json({ error: "This email is already registered." }, { status: 409 });
+      }
+
+      const isApiKeyErr =
+        clientErr.message?.includes("Invalid API key") ||
+        clientErr.message?.includes("invalid_api_key") ||
+        (clientErr.status === 401 && !isDup);
+
+      if (isApiKeyErr) {
+        console.error("[Supabase Config Error] Invalid API key received from Supabase. Verify NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel.");
         return NextResponse.json(
-          { error: "This email is already registered." },
-          { status: 400 }
+          { error: "Authentication service configuration error. Please verify NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel environment variables." },
+          { status: 503 }
         );
       }
 
@@ -152,16 +149,23 @@ export async function POST(req: NextRequest) {
 
         if (adminErr) {
           console.error("[Supabase Admin CreateUser Error]:", adminErr);
+          const adminIsApiKeyErr = adminErr.message?.includes("Invalid API key") || adminErr.status === 401;
+          if (adminIsApiKeyErr) {
+            return NextResponse.json(
+              { error: "Authentication service configuration error. Please verify SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel." },
+              { status: 503 }
+            );
+          }
           return NextResponse.json(
-            { error: clientErr.message || adminErr.message || "Unable to create your account. Please try again." },
-            { status: clientErr.status || 400 }
+            { error: clientErr.message || adminErr.message || "Unable to create your account." },
+            { status: 400 }
           );
         }
 
         user = adminData?.user;
       } catch {
         return NextResponse.json(
-          { error: clientErr.message || "Unable to create your account. Please try again later." },
+          { error: "Unable to create your account. Please try again later." },
           { status: 503 }
         );
       }

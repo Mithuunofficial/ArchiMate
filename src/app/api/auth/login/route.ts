@@ -22,14 +22,18 @@ export async function POST(req: NextRequest) {
     let targetEmail: string | null = null;
     let profileData: any = null;
 
+    // Check if input is directly an email address
+    if (trimmedUsername.includes("@")) {
+      targetEmail = trimmedUsername.toLowerCase();
+    }
+
     // 1. Resolve username to email using Supabase profiles table if configured
     if (configured) {
       try {
-        const { data: profile } = await supabaseAdmin
-          .from("profiles")
-          .select("*")
-          .ilike("username", trimmedUsername)
-          .maybeSingle();
+        const query = supabaseAdmin.from("profiles").select("*");
+        const { data: profile } = targetEmail
+          ? await query.ilike("email", targetEmail).maybeSingle()
+          : await query.ilike("username", trimmedUsername).maybeSingle();
 
         if (profile) {
           profileData = profile;
@@ -42,7 +46,7 @@ export async function POST(req: NextRequest) {
 
     // Check dev store fallback if unconfigured or profile not found in Supabase
     if (!targetEmail && (!configured || process.env.NODE_ENV !== "production")) {
-      const devRecord = DevAuthStore.findByUsername(trimmedUsername);
+      const devRecord = DevAuthStore.findByUsername(trimmedUsername) || DevAuthStore.findByEmail(trimmedUsername);
       if (devRecord) {
         targetEmail = devRecord.email;
         profileData = {
@@ -93,6 +97,23 @@ export async function POST(req: NextRequest) {
 
       if (authError) {
         console.error("[Supabase Login Error]:", authError);
+
+        const isApiKeyErr =
+          authError.message?.includes("Invalid API key") ||
+          authError.message?.includes("invalid_api_key");
+
+        if (isApiKeyErr) {
+          console.error("[Supabase Config Error] Invalid API key received from Supabase. Verify NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel.");
+          return NextResponse.json(
+            { error: "Authentication service configuration error. Please verify NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel environment variables." },
+            { status: 503 }
+          );
+        }
+
+        return NextResponse.json(
+          { error: "Invalid username or password." },
+          { status: 401 }
+        );
       } else if (authData?.user && authData?.session) {
         authenticatedUser = authData.user;
         authenticatedSession = authData.session;
@@ -101,7 +122,7 @@ export async function POST(req: NextRequest) {
 
     // 4. Fallback authentication via DevAuthStore ONLY in offline local dev mode
     if (!authenticatedUser && !configured && process.env.NODE_ENV !== "production") {
-      const devRecord = DevAuthStore.findByUsername(trimmedUsername);
+      const devRecord = DevAuthStore.findByUsername(trimmedUsername) || DevAuthStore.findByEmail(trimmedUsername);
       if (devRecord && devRecord.passwordHash === trimmedPassword) {
         authenticatedUser = {
           id: devRecord.id,
