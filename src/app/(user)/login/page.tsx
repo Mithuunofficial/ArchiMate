@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { authService } from "@/services/auth.service";
+import { Logo } from "@/components/ui/Logo";
 import { Sparkles, Eye, EyeOff, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 
 export default function LoginPage() {
@@ -60,12 +61,7 @@ export default function LoginPage() {
         {/* Header */}
         <div className="text-center space-y-2">
           <Link href="/" className="inline-flex items-center gap-2 group">
-            <div className="p-2 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform">
-              <Sparkles className="w-5 h-5 fill-current" />
-            </div>
-            <span className="text-xl font-extrabold tracking-tight text-white font-mono">
-              Archi<span className="text-cyan-400">Mate</span>
-            </span>
+            <Logo variant="navbar" />
           </Link>
           <h1 className="text-2xl font-bold tracking-tight text-white pt-2">
             Welcome back, Architect

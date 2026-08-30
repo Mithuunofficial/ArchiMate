@@ -21,6 +21,7 @@ import {
 import { useCommandPaletteStore } from "@/hooks/useCommandPalette";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/utils/cn";
+import { Logo } from "@/components/ui/Logo";
 
 export function Navbar() {
   const pathname = usePathname();
@@ -65,15 +66,7 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
         {/* Brand Logo */}
         <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="p-1.5 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20 group-hover:scale-105 transition-transform">
-            <Sparkles className="w-4 h-4 fill-current" />
-          </div>
-          <span className="text-base font-extrabold tracking-tight text-white font-mono">
-            Archi<span className="text-cyan-400">Mate</span>
-          </span>
-          <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">
-            PRO
-          </span>
+          <Logo variant="navbar" />
         </Link>
 
         {/* Center Nav Links */}

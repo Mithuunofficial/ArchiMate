@@ -17,6 +17,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
+import { Logo } from "@/components/ui/Logo";
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -44,18 +45,8 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
       {/* Sidebar Desktop */}
       <aside className="hidden md:flex flex-col w-64 border-r border-slate-800/80 bg-[#070B19] shrink-0 font-sans sticky top-0 h-screen">
         {/* Admin Branding Header */}
-        <div className="h-16 px-6 flex items-center gap-3 border-b border-slate-800/80 shrink-0">
-          <div className="p-2 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20">
-            <Sparkles className="w-4 h-4 fill-current" />
-          </div>
-          <div>
-            <span className="text-sm font-extrabold tracking-tight text-white font-mono block leading-none">
-              Archi<span className="text-cyan-400">Mate</span>
-            </span>
-            <span className="text-[10px] font-mono text-cyan-400 font-bold uppercase tracking-widest block pt-1">
-              ADMINISTRATION
-            </span>
-          </div>
+        <div className="h-16 px-6 flex items-center border-b border-slate-800/80 shrink-0">
+          <Logo variant="admin" />
         </div>
 
         {/* Security Badge Indicator */}
@@ -126,19 +117,7 @@ export function AdminLayout({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Top Navigation Header */}
       <header className="md:hidden h-14 px-4 bg-[#070B19] border-b border-slate-800 flex items-center justify-between z-30 sticky top-0">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 text-white">
-            <Sparkles className="w-4 h-4 fill-current" />
-          </div>
-          <div>
-            <span className="text-sm font-extrabold tracking-tight text-white font-mono block leading-none">
-              Archi<span className="text-cyan-400">Mate</span>
-            </span>
-            <span className="text-[9px] font-mono text-cyan-400 font-bold uppercase tracking-wider block">
-              ADMINISTRATION
-            </span>
-          </div>
-        </div>
+        <Logo variant="admin" />
 
         <button
           onClick={() => setIsMobileOpen(!isMobileOpen)}

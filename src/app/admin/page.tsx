@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
 import { AdminGuard } from "@/components/auth/AdminGuard";
 import { AdminLayout } from "@/components/admin/AdminLayout";
+import { Logo } from "@/components/ui/Logo";
 import {
   Sparkles,
   Users,
@@ -105,13 +106,8 @@ function AdminLoginView() {
       <div className="relative z-10 w-full max-w-md p-8 sm:p-10 bg-[#090D1A]/90 backdrop-blur-2xl border border-slate-800/80 rounded-3xl shadow-2xl space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center gap-2 group mb-1">
-            <div className="p-2 rounded-xl bg-gradient-to-tr from-blue-600 to-cyan-500 text-white shadow-lg shadow-cyan-500/20">
-              <Sparkles className="w-5 h-5 fill-current" />
-            </div>
-            <span className="text-xl font-extrabold tracking-tight text-white font-mono">
-              Archi<span className="text-cyan-400">Mate</span>
-            </span>
+          <div className="inline-flex items-center justify-center mb-1">
+            <Logo variant="admin" />
           </div>
           <span className="text-[10px] font-mono text-cyan-400 font-bold uppercase tracking-widest block">
             Administration

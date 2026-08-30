@@ -9,6 +9,14 @@ export const metadata: Metadata = {
   title: "ArchiMate — AI Software Architecture Generator",
   description:
     "Convert plain-English requirements into interactive, editable software architecture diagrams, system health analyses, database schemas, API specs, Docker configs, and project folder structures.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/icon.png", type: "image/png" },
+    ],
+    shortcut: "/favicon.png",
+    apple: "/icon.png",
+  },
 };
 
 export default function RootLayout({
