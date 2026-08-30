@@ -141,7 +141,15 @@ export default function SignupPage() {
       });
 
       if (error) {
-        setErrorMessage(error);
+        if (
+          error.includes("NEXT_PUBLIC_SUPABASE_URL") ||
+          error.includes("placeholder") ||
+          error.includes("unreachable")
+        ) {
+          setErrorMessage("Authentication service is temporarily unavailable. Please try again later.");
+        } else {
+          setErrorMessage(error);
+        }
       } else if (needsEmailVerification) {
         setEmailSent(true);
       } else if (session || user) {

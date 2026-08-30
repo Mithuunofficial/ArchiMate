@@ -1,18 +1,27 @@
 import { createClient } from "@supabase/supabase-js";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder-project.supabase.co";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-anon-key";
+const getNormalizedUrl = (rawUrl?: string): string => {
+  if (!rawUrl) return "https://placeholder-project.supabase.co";
+  const trimmed = rawUrl.trim().replace(/\/+$/, "");
+  return trimmed || "https://placeholder-project.supabase.co";
+};
+
+const rawUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseUrl = getNormalizedUrl(rawUrl);
+const supabaseAnonKey = (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-anon-key").trim();
 
 export const isSupabaseConfigured = (): boolean => {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
   return (
     !!url &&
-    url !== "https://placeholder-project.supabase.co" &&
+    !url.includes("placeholder-project") &&
     !url.includes("your-project-ref") &&
+    !url.includes("YOUR_SUPABASE_URL") &&
     !!key &&
     key !== "placeholder-anon-key" &&
-    !key.includes("your-supabase-anon-key")
+    !key.includes("your-supabase-anon-key") &&
+    !key.includes("placeholder")
   );
 };
 
@@ -27,7 +36,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       try {
         const res = await fetch(url, options);
         return res;
-      } catch (err: any) {
+      } catch {
         // Intercept network/DNS failures (e.g. ERR_NAME_NOT_RESOLVED)
         // to prevent GoTrueClient from retrying infinitely in the browser
         if (typeof window !== "undefined") {
@@ -43,7 +52,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
         return new Response(
           JSON.stringify({
             error: "network_error",
-            message: "Supabase endpoint unreachable. Please verify NEXT_PUBLIC_SUPABASE_URL.",
+            message: "Authentication service is temporarily unavailable. Please try again later.",
           }),
           {
             status: 503,
@@ -54,3 +63,4 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     },
   },
 });
+

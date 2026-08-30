@@ -205,7 +205,7 @@ class AuthService {
    */
   public async resetPassword(email: string): Promise<{ error: string | null }> {
     if (!isSupabaseConfigured()) {
-      return { error: "Supabase environment variables are missing." };
+      return { error: "Authentication service is temporarily unavailable. Please try again later." };
     }
 
     const origin = typeof window !== "undefined" ? window.location.origin : "";
@@ -224,7 +224,7 @@ class AuthService {
    */
   public async updatePassword(newPassword: string): Promise<{ error: string | null }> {
     if (!isSupabaseConfigured()) {
-      return { error: "Supabase environment variables are missing." };
+      return { error: "Authentication service is temporarily unavailable. Please try again later." };
     }
 
     const { error } = await supabase.auth.updateUser({

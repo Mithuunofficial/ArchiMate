@@ -15,7 +15,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       status: "ok",
       adminAuthConfigured: adminUsernameConfigured && adminPasswordConfigured,
-      adminUsername: process.env.ADMIN_USERNAME || "Admin-Archimate",
       supabaseConnected: isSupabaseConfigured() || supabaseUrlConfigured,
       serviceRoleAvailable: supabaseKeyConfigured,
       timestamp: new Date().toISOString(),

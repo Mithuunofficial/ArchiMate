@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/server-admin";
-import { supabase } from "@/lib/supabase/client";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase/client";
 import { DevAuthStore } from "@/lib/dev-auth-store";
 
 export async function POST(req: NextRequest) {
@@ -53,103 +53,106 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3. Check existing username/email in Supabase profiles table if reachable
-    try {
-      const { data: existingProfile } = await supabaseAdmin
-        .from("profiles")
-        .select("id, username")
-        .ilike("username", trimmedUsername)
-        .maybeSingle();
+    // 3. Check existing username/email in Supabase profiles table if configured & reachable
+    if (isSupabaseConfigured()) {
+      try {
+        const { data: existingProfile } = await supabaseAdmin
+          .from("profiles")
+          .select("id, username")
+          .ilike("username", trimmedUsername)
+          .maybeSingle();
 
-      if (existingProfile) {
-        return NextResponse.json(
-          { error: "Username is already taken." },
-          { status: 400 }
-        );
+        if (existingProfile) {
+          return NextResponse.json(
+            { error: "Username is already taken." },
+            { status: 400 }
+          );
+        }
+
+        const { data: existingEmailProfile } = await supabaseAdmin
+          .from("profiles")
+          .select("id, email")
+          .ilike("email", trimmedEmail)
+          .maybeSingle();
+
+        if (existingEmailProfile) {
+          return NextResponse.json(
+            { error: "This email is already registered." },
+            { status: 400 }
+          );
+        }
+      } catch {
+        // Ignore network check failure and continue to auth attempt
       }
-
-      const { data: existingEmailProfile } = await supabaseAdmin
-        .from("profiles")
-        .select("id, email")
-        .ilike("email", trimmedEmail)
-        .maybeSingle();
-
-      if (existingEmailProfile) {
-        return NextResponse.json(
-          { error: "This email is already registered." },
-          { status: 400 }
-        );
-      }
-    } catch {
-      // Ignore network errors and proceed to user creation / fallback
     }
 
     let user: any = null;
     let session: any = null;
 
     // 4. Register user with Supabase Auth (sending verification email)
-    try {
-      // First try standard signup which triggers Supabase Auth email verification flow
-      const { data: clientData, error: clientErr } = await supabase.auth.signUp({
-        email: trimmedEmail,
-        password: password,
-        options: {
-          data: { username: trimmedUsername, role: "user" },
-          emailRedirectTo: `${req.nextUrl.origin}/login?verified=true`,
-        },
-      });
-
-      if (clientErr) {
-        const isDup =
-          clientErr.message.includes("already registered") ||
-          clientErr.message.includes("User already exists") ||
-          clientErr.status === 422;
-
-        if (isDup) {
-          return NextResponse.json(
-            { error: "This email is already registered." },
-            { status: 400 }
-          );
-        }
-
-        // Fallback to admin createUser with email_confirm: false
-        const { data: adminData } = await supabaseAdmin.auth.admin.createUser({
+    if (isSupabaseConfigured()) {
+      try {
+        const { data: clientData, error: clientErr } = await supabase.auth.signUp({
           email: trimmedEmail,
           password: password,
-          email_confirm: false,
-          user_metadata: { username: trimmedUsername, role: "user" },
+          options: {
+            data: { username: trimmedUsername, role: "user" },
+            emailRedirectTo: `${req.nextUrl.origin}/login?verified=true`,
+          },
         });
 
-        if (adminData?.user) {
-          user = adminData.user;
-        }
-      } else if (clientData?.user) {
-        user = clientData.user;
-        session = clientData.session;
-      }
+        if (clientErr) {
+          const isDup =
+            clientErr.message.includes("already registered") ||
+            clientErr.message.includes("User already exists") ||
+            clientErr.status === 422;
 
-      if (user) {
-        const isEmailConfirmed = !!user.email_confirmed_at;
-        await supabaseAdmin.from("profiles").upsert(
-          {
-            id: user.id,
-            username: trimmedUsername,
+          if (isDup) {
+            return NextResponse.json(
+              { error: "This email is already registered." },
+              { status: 400 }
+            );
+          }
+
+          // Fallback to admin createUser with email_confirm: false
+          const { data: adminData } = await supabaseAdmin.auth.admin.createUser({
             email: trimmedEmail,
-            role: "user",
-            status: isEmailConfirmed ? "approved" : "pending",
-            account_status: isEmailConfirmed ? "approved" : "pending",
-            email_verified: isEmailConfirmed,
-            admin_approved: false,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "id" }
-        );
+            password: password,
+            email_confirm: false,
+            user_metadata: { username: trimmedUsername, role: "user" },
+          });
+
+          if (adminData?.user) {
+            user = adminData.user;
+          }
+        } else if (clientData?.user) {
+          user = clientData.user;
+          session = clientData.session;
+        }
+
+        if (user) {
+          const isEmailConfirmed = !!user.email_confirmed_at;
+          await supabaseAdmin.from("profiles").upsert(
+            {
+              id: user.id,
+              username: trimmedUsername,
+              email: trimmedEmail,
+              role: "user",
+              status: isEmailConfirmed ? "approved" : "pending",
+              account_status: isEmailConfirmed ? "approved" : "pending",
+              email_verified: isEmailConfirmed,
+              admin_approved: false,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "id" }
+          );
+        }
+      } catch {
+        // Ignore network error and handle dev fallback below
       }
-    } catch {
-      // Ignore network errors and handle dev fallback below
     }
 
-    // 5. Fallback creation in dev store if Supabase Auth host was unreachable
+    // 5. Fallback creation in dev store if Supabase Auth host was unconfigured or unreachable
     if (!user) {
       const devRecord = DevAuthStore.createUser(trimmedUsername, trimmedEmail, password);
       user = {
@@ -174,12 +177,13 @@ export async function POST(req: NextRequest) {
       user,
       session,
       needsEmailVerification,
-      message: "Account created successfully. Please verify your email or wait for admin approval.",
+      message: "Account created successfully. Please check your email to verify your ArchiMate account.",
     });
-  } catch (err: any) {
+  } catch {
     return NextResponse.json(
-      { error: "Unable to create your account. Please try again." },
+      { error: "Unable to create your account. Please try again later." },
       { status: 500 }
     );
   }
 }
+

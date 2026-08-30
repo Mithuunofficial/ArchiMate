@@ -1,13 +1,20 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder-project.supabase.co";
+const getNormalizedUrl = (rawUrl?: string): string => {
+  if (!rawUrl) return "https://placeholder-project.supabase.co";
+  const trimmed = rawUrl.trim().replace(/\/+$/, "");
+  return trimmed || "https://placeholder-project.supabase.co";
+};
+
+const supabaseUrl = getNormalizedUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
 
 // Check SUPABASE_SERVICE_ROLE_KEY or fall back to ANON key
-const serviceRoleKey =
+const serviceRoleKey = (
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  "placeholder-key";
+  "placeholder-key"
+).trim();
 
 export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
   auth: {
@@ -19,11 +26,11 @@ export const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
       try {
         const res = await fetch(url, options);
         return res;
-      } catch (err: any) {
+      } catch {
         return new Response(
           JSON.stringify({
             error: "network_error",
-            message: "Supabase endpoint unreachable. Please verify NEXT_PUBLIC_SUPABASE_URL.",
+            message: "Authentication service is temporarily unavailable. Please try again later.",
           }),
           {
             status: 503,
